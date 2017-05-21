@@ -67,7 +67,8 @@ def linear_ar(name, id, z, hidden=None):
     return m, s
 
 
-def planar_normalizing_flow(samples, log_probs, n_iters):
+def planar_normalizing_flow(samples, log_probs, n_iters,
+                            scope_name='planar_flow_parameters'):
     """
     Perform Planar Normalizing Flow along the last axis of inputs.
 
@@ -83,6 +84,7 @@ def planar_normalizing_flow(samples, log_probs, n_iters):
     :param log_probs: A (N-1)-D `float32` Tensor, should be of the same shape
         as the first N-1 axes of `samples`.
     :param n_iters: A int, which represents the number of successive flows.
+    :param scope_name: A string, the name scope of the transform parameters.
 
     :return: A N-D Tensor, the transformed samples.
     :return: A (N-1)-D Tensor, the log probabilities of the transformed
@@ -145,24 +147,23 @@ def planar_normalizing_flow(samples, log_probs, n_iters):
     d = int(static_x_shape[-1])
 
     # define parameters
-    with tf.name_scope('planar_flow_parameters'):
+    with tf.variable_scope(scope_name):
         param_bs, param_us, param_ws = [], [], []
         for iter in range(n_iters):
-            param_b = tf.Variable(tf.zeros(shape=[1], dtype=tf.float32),
-                                  name='param_b_%d' % iter)
-            aux_u = tf.Variable(
-                tf.random_normal(shape=[d, 1], mean=0, stddev=0.005,
-                                 dtype=tf.float32),
-                name='aux_u_%d' % iter)
-            param_w = tf.Variable(
-                tf.random_normal(shape=[d, 1], mean=0, stddev=0.005,
-                                 dtype=tf.float32),
-                name='para_w_%d' % iter)
+            param_b = tf.get_variable(
+                'param_b_{}'.format(iter), [1], tf.float32, 
+                tf.zeros_initializer())
+            aux_u = tf.get_variable(
+                'aux_u_{}'.format(iter), [d, 1], tf.float32,
+                tf.random_normal_initializer(mean=0, stddev=0.005))
+            param_w = tf.get_variable(
+                'para_w_{}'.format(iter), [d, 1], tf.float32,
+                tf.random_normal_initializer(mean=0, stddev=0.005))
             dot_prod = tf.matmul(param_w, aux_u, transpose_a=True)
             param_u = aux_u + param_w / tf.matmul(param_w, param_w,
                                                   transpose_a=True) \
                 * (tf.log(tf.exp(dot_prod) + 1) - 1 - dot_prod)
-            param_u = tf.transpose(param_u, name='param_u_%d' % iter)
+            param_u = tf.transpose(param_u, name='param_u_{}'.format(iter))
             param_bs.append(param_b)
             param_ws.append(param_w)
             param_us.append(param_u)
