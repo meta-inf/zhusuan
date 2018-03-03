@@ -5,3 +5,4 @@ from .base import *
 from .exclusive_kl import *
 from .monte_carlo import *
 from .inclusive_kl import *
+from .svgd import *
