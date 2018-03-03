@@ -51,7 +51,7 @@ def stein_variational_gradient(log_joint, latent_dict, kernel=None):
             n_particles = tf.shape(value_tensor)[0]
         else:
             assert_ops.append(
-                [tf.assert_equal(n_particles, tf.shape(value_tensor)[0])])
+                tf.assert_equal(n_particles, tf.shape(value_tensor)[0]))
 
     with tf.control_dependencies(assert_ops):
         log_lhood = log_joint(latent_dict)
