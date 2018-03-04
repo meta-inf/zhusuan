@@ -24,7 +24,7 @@ def bayesianNN(observed, x, n_x, layer_sizes, n_particles):
                                               layer_sizes[1:])):
             w_mu = tf.zeros([1, n_out, n_in + 1])
             ws.append(
-                zs.Normal('w' + str(i), w_mu, std=1.,
+                zs.Normal('w' + str(i), w_mu, std=10.,
                           n_samples=n_particles, group_ndims=2))
 
         # forward
@@ -39,9 +39,12 @@ def bayesianNN(observed, x, n_x, layer_sizes, n_particles):
                 ly_x = tf.nn.relu(ly_x)
 
         y_mean = tf.squeeze(ly_x, [2, 3])
-        y_logstd = tf.get_variable('y_logstd', shape=[],
-                                   initializer=tf.constant_initializer(0.))
-        y = zs.Normal('y', y_mean, logstd=y_logstd)
+        y_var = zs.InverseGamma(
+            'y_var', alpha=1., beta=0.1, n_samples=n_particles)
+        y_var = tf.expand_dims(y_var, -1)
+        # y_logstd = tf.get_variable('y_logstd', shape=[],
+        #                            initializer=tf.constant_initializer(0.))
+        y = zs.Normal('y', y_mean, std=tf.sqrt(y_var))
 
     return model, y_mean
 
@@ -51,10 +54,20 @@ def stein_variational(layer_sizes, n_particles):
     for i, (n_in, n_out) in enumerate(zip(layer_sizes[:-1],
                                           layer_sizes[1:])):
         w_vals = tf.get_variable(
-            'w_val' + str(i), shape=[n_particles, 1, n_out, n_in + 1],
-            #initializer=tf.random_uniform_initializer(-0.5, +0.5))
-            initializer=tf.random_normal_initializer(stddev=1./np.sqrt(n_in)))
+            'w_val' + str(i),
+            initializer=tf.concat(
+                [tf.random_normal(stddev=1./np.sqrt(n_in+1),
+                                  shape=[n_particles, 1, n_out, n_in]),
+                 tf.zeros([n_particles, 1, n_out, 1])],
+                axis=3))
+        # w_vals = tf.get_variable(
+        #     'w_val' + str(i), shape=[n_particles, 1, n_out, n_in + 1],
+        #     #initializer=tf.random_uniform_initializer(-0.5, +0.5))
+        #     initializer=tf.random_normal_initializer(stddev=1./np.sqrt(n_in+1)))
         ws['w' + str(i)] = w_vals
+    ws['y_var'] = tf.get_variable(
+        'y_var',
+        initializer=tf.constant(0.1 * np.ones([n_particles], dtype=np.float32)))
     return ws
 
 
@@ -85,11 +98,11 @@ else:
     n_hiddens = [50]    
 
 # Build the computation graph
-n_particles = 20
+n_particles = 40
 x = tf.placeholder(tf.float32, shape=[None, n_x])
 y = tf.placeholder(tf.float32, shape=[None])
 layer_sizes = [n_x] + n_hiddens + [1]
-w_names = ['w' + str(i) for i in range(len(layer_sizes) - 1)]
+w_names = ['w' + str(i) for i in range(len(layer_sizes) - 1)] + ['y_var']
 
 def log_joint(observed):
     observed = observed.copy()
@@ -97,13 +110,14 @@ def log_joint(observed):
     model, _ = bayesianNN(observed, x, n_x, layer_sizes, n_particles)
     log_pws = model.local_log_prob(w_names)
     log_py_xw = model.local_log_prob('y')
+    log_pws[-1] = tf.expand_dims(log_pws[-1], -1)
     return tf.add_n(log_pws) + log_py_xw * N
 
 variational = stein_variational(layer_sizes, n_particles)
 grad_and_vars = zs.variational.svgd.stein_variational_gradient(
     log_joint, variational)
 grad_and_vars = [(-g, v) for (g, v) in grad_and_vars]
-optimizer = tf.train.AdamOptimizer(learning_rate=0.01)
+optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
 infer_op = optimizer.apply_gradients(grad_and_vars)
 
 # prediction: rmse & log likelihood
@@ -111,18 +125,17 @@ observed = variational.copy()
 observed.update({'y': y})
 model, y_mean = bayesianNN(observed, x, n_x, layer_sizes, n_particles)
 y_pred = tf.reduce_mean(y_mean, 0)
+pred_var = tf.reduce_mean((y_mean - tf.expand_dims(y_pred, 0))**2)
 rmse = tf.sqrt(tf.reduce_mean((y_pred - y) ** 2)) * std_y_train
 log_py_xw = model.local_log_prob('y')
 log_likelihood = tf.reduce_mean(zs.log_mean_exp(log_py_xw, 0)) - \
     tf.log(std_y_train)
 
 # Define training/evaluation parameters
-lb_samples = 10
-ll_samples = 5000
 epochs = 5000
 batch_size = 100
 iters = int(np.floor(x_train.shape[0] / float(batch_size)))
-test_freq = 10
+test_freq = 100
 
 par = variational['w0']
 par = tf.reshape(par, [tf.shape(par)[0], -1])
@@ -152,9 +165,9 @@ for epoch in range(1, epochs + 1):
     # print('Epoch {} avg dist {}'.format(epoch, avg_dist_))
 
     if epoch % test_freq == 0:
-        test_rmse, test_ll = sess.run(
-            [rmse, log_likelihood],
+        test_rmse, test_var, test_ll = sess.run(
+            [rmse, pred_var, log_likelihood],
             feed_dict={x: x_test, y: y_test})
         print('>> TEST')
-        print('>> Test rmse = {}, log_likelihood = {} avg_dist = {}'
-              .format(test_rmse, test_ll, avg_dist_))
+        print('>> Test rmse = {}, var = {}, log_likelihood = {} avg_dist = {}'
+              .format(test_rmse, test_var, test_ll, avg_dist_))
