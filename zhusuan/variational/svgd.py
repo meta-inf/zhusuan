@@ -42,11 +42,12 @@ def _unsqueeze(squeezed, original_tensors):
     return ret 
 
 
-def stein_variational_gradient(log_joint, latent_dict, kernel=None):
+def stein_variational_gradient(
+    log_joint, observed, latent, kernel=None):
     n_particles = None
     kernel = kernel or rbf_kernel
     assert_ops = []
-    for param, value_tensor in latent_dict.items():
+    for param, value_tensor in latent.items():
         if n_particles is None:
             n_particles = tf.shape(value_tensor)[0]
         else:
@@ -54,8 +55,10 @@ def stein_variational_gradient(log_joint, latent_dict, kernel=None):
                 tf.assert_equal(n_particles, tf.shape(value_tensor)[0]))
 
     with tf.control_dependencies(assert_ops):
-        log_lhood = log_joint(latent_dict)
-        params = [v for _, v in latent_dict.items()]
+        observed = observed.copy()
+        observed.update(latent)
+        log_lhood = log_joint(observed)
+        params = [v for _, v in latent.items()]
         params_squeezed = _squeeze(params, n_particles)
         Kxy = kernel(params_squeezed, tf.stop_gradient(params_squeezed))
         # We want dxkxy[x] := -sum_y\frac{\partial K(x,y)}{\partial y}
