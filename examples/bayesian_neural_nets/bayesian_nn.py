@@ -10,6 +10,7 @@ import tensorflow as tf
 from six.moves import range, zip
 import numpy as np
 import zhusuan as zs
+from zhusuan.utils import logger
 
 from examples import conf
 from examples.utils import dataset
@@ -53,6 +54,8 @@ def build_mean_field_variational(layer_sizes, n_particles):
 def main():
     tf.set_random_seed(1234)
     np.random.seed(1234)
+    import logging
+    logger.setLevel(logging.DEBUG)
 
     # Load UCI Boston housing data
     data_path = os.path.join(conf.data_dir, "housing.data")

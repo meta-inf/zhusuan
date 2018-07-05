@@ -9,6 +9,7 @@ import tensorflow as tf
 from functools import wraps
 
 from zhusuan.framework.utils import Context
+from zhusuan.utils import logger
 
 
 __all__ = [
@@ -59,7 +60,7 @@ class MetaBayesianNet(object):
             return func(*self._args, **self._kwargs)
 
     def observe(self, **kwargs):
-        print("observe:", kwargs)
+        logger.debug("observe: {}".format(kwargs))
         if (self._scope is not None) and (not self._reuse_variables):
             with tf.variable_scope(self._scope):
                 return self._run_with_observations(self._f, kwargs)

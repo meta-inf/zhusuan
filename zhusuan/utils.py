@@ -7,11 +7,14 @@ from functools import wraps
 
 import tensorflow as tf
 
+from . import logger
+
 
 __all__ = [
     'TensorArithmeticMixin',
     'log_mean_exp',
     'merge_dicts',
+    'logger'
 ]
 
 
